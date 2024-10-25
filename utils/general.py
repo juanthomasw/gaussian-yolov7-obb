@@ -1058,3 +1058,146 @@ def scale_polys(img1_shape, polys, img0_shape, ratio_pad=None):
     polys[:, [1, 3, 5, 7]] -= pad[1]  # y padding
     polys[:, :8] /= gain # Rescale poly shape to img0_shape)
     return polys
+
+### Gaussian Model Function
+
+def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
+                        labels=()):
+    """Runs Non-Maximum Suppression (NMS) on inference results
+
+    Returns:
+         list of detections, len=batch_size, on (n,7) tensor per image [xywhθ, conf, cls] θ ∈ [-pi/2, pi/2)
+    """
+
+    nc = prediction.shape[2] - 5 - 4 - 180  # number of classes
+    xc = prediction[..., 184] > conf_thres  # candidates
+
+    # Settings
+    min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
+    max_det = 300  # maximum number of detections per image
+    max_nms = 30000  # maximum number of boxes into torchvision.ops.nms()
+    time_limit = 10.0  # seconds to quit after
+    redundant = True  # require redundant detections
+    multi_label &= nc > 1  # multiple labels per box (adds 0.5ms/img)
+    merge = False  # use merge-NMS
+
+    t = time.time()
+    output = [torch.zeros((0, 7), device=prediction.device)] * prediction.shape[0]
+    for xi, x in enumerate(prediction):  # image index, image inference
+        # Apply constraints
+        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
+        x = x[xc[xi]]  # confidence
+
+        # Cat apriori labels if autolabelling
+        if labels and len(labels[xi]):
+            l = labels[xi]
+            v = torch.zeros((len(l), nc + 5), device=x.device)
+            v[:, :4] = l[:, 1:5]  # box
+            v[:, 4] = 1.0  # conf
+            v[range(len(l)), l[:, 0].long() + 5] = 1.0  # cls
+            x = torch.cat((x, v), 0)
+
+        # If none remain process next image
+        if not x.shape[0]:
+            continue
+
+        # Compute conf
+        if nc == 1:
+            x[:, 189:] = x[:, 188:189] # for models with one class, cls_loss is 0 and cls_conf is always 0.5,
+                                 # so there is no need to multiplicate.
+        else:
+            x[:, 189:] *= x[:, 188:189]  # conf = obj_conf * cls_conf
+
+        _, theta_pred = torch.max(x[:, 4:184], 1,  keepdim=True) # [n_conf_thres, 1] θ ∈ int[0, 179]
+        theta_pred = (theta_pred - 90) / 180 * math.pi # [n_conf_thres, 1] θ ∈ [-pi/2, pi/2)
+
+        # Detections matrix nx7 (xywh, theta, conf, cls)
+        if multi_label:
+            i, j = (x[:, 185:] > conf_thres).nonzero(as_tuple=False).T
+            x = torch.cat((x[i, :4], theta_pred[i], x[i, j + 185, None], j[:, None].float()), 1)
+        else:  # best class only
+            conf, j = x[:, 185:].max(1, keepdim=True)
+            x = torch.cat((x[:,:4], theta_pred, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+
+        # Filter by class
+        if classes is not None:
+            x = x[(x[:, 6:7] == torch.tensor(classes, device=x.device)).any(1)]
+
+        # Apply finite constraint
+        # if not torch.isfinite(x).all():
+        #     x = x[torch.isfinite(x).all(1)]
+
+        # Check shape
+        n = x.shape[0]  # number of boxes
+        if not n:  # no boxes
+            continue
+        elif n > max_nms:  # excess boxes
+            x = x[x[:, 5].argsort(descending=True)[:max_nms]]  # sort by confidence
+
+        # Batched NMS
+        c = x[:, 6:7] * (0 if agnostic else max_wh)  # classes
+
+        rboxes = x[:, :5].clone() 
+        boxes = xywh2xyxy(poly2hbb(rbox2poly(rboxes)))
+
+        boxes = boxes + c # boxes (offset by class)
+        scores = x[:, 5]  # scores
+        
+        i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
+        
+        if i.shape[0] > max_det:  # limit detections
+            i = i[:max_det]
+        
+        # if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+            # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
+            #iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
+            #weights = iou * scores[None]  # box weights
+            #x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
+            #if redundant:
+                #i = i[iou.sum(1) > 1]  # require redundancy
+
+        output[xi] = x[i]
+        if (time.time() - t) > time_limit:
+            print(f'WARNING: NMS time limit {time_limit}s exceeded')
+            break  # time limit exceeded
+
+    return output
+
+def bbox_nll(box1, box2, varbox, wh_scale, x1y1x2y2=True):
+    box2 = box2.T
+
+    # Check if wh_scale has only 1 dimension and add an extra dimension if needed
+    if len(wh_scale.shape) == 1:
+        wh_scale = wh_scale.unsqueeze(0)
+    
+    wh_scale = wh_scale.T
+    tscale = 2.0 - wh_scale[0] * wh_scale[1]
+
+    # print(f'whscale:{wh_scale}')
+    # print(f'tscale:{tscale}, wscale: {wh_scale[0]}, hscale: {wh_scale[1]}')
+    
+    if x1y1x2y2:
+        b1_x, b1_y, b1_w, b1_h = (box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2, box1[2] - box1[0], box1[3] - box1[1]
+        b2_x, b2_y, b2_w, b2_h = (box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2, box2[2] - box2[0], box2[3] - box2[1]
+    else:
+        b1_x, b1_y, b1_w, b1_h = box1[0], box1[1], box1[2], box1[3]
+        b2_x, b2_y, b2_w, b2_h = box2[0], box2[1], box2[2], box2[3]
+
+    var_x, var_y, var_w, var_h = varbox[0], varbox[1], varbox[2], varbox[3]
+    
+    loss_x = -torch.log(gaussian_dist_pdf(b1_x, b2_x, var_x) + 1e-9) / 2.0
+    loss_y = -torch.log(gaussian_dist_pdf(b1_y, b2_y, var_y) + 1e-9) / 2.0
+    loss_w = -torch.log(gaussian_dist_pdf(b1_w, b2_w, var_w) + 1e-9) / 2.0
+    loss_h = -torch.log(gaussian_dist_pdf(b1_h, b2_h, var_h) + 1e-9) / 2.0
+    
+    loss = 1e-2 * ((loss_x + loss_y + loss_w + loss_h) * tscale).mean()
+
+    # Ensure that the loss is non-negative
+    loss = torch.clamp(loss, min=0.0)
+
+    # print(f'NLLloss:{loss}')
+    
+    return loss
+    
+def gaussian_dist_pdf(mean, target, var):
+    return torch.exp((-1.0 / 2.0) * (((target - mean) ** 2) / var)) / torch.sqrt(2.0 * np.pi * var)
