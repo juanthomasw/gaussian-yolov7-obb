@@ -1113,10 +1113,10 @@ def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45,
 
         # Detections matrix nx7 (xywh, theta, conf, cls)
         if multi_label:
-            i, j = (x[:, 185:] > conf_thres).nonzero(as_tuple=False).T
-            x = torch.cat((x[i, :4], theta_pred[i], x[i, j + 185, None], j[:, None].float()), 1)
+            i, j = (x[:, 189:] > conf_thres).nonzero(as_tuple=False).T
+            x = torch.cat((x[i, :4], theta_pred[i], x[i, j + 189, None], j[:, None].float()), 1)
         else:  # best class only
-            conf, j = x[:, 185:].max(1, keepdim=True)
+            conf, j = x[:, 189:].max(1, keepdim=True)
             x = torch.cat((x[:,:4], theta_pred, conf, j.float()), 1)[conf.view(-1) > conf_thres]
 
         # Filter by class
