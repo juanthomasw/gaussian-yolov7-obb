@@ -213,9 +213,9 @@ class IDetect(nn.Module):
 
     def convert(self, z):
         z = torch.cat(z, 1)
-        box = z[:, :, :184]
-        conf = z[:, :, 184:185]
-        score = z[:, :, 185:]
+        box = z[:, :, :188]
+        conf = z[:, :, 188:189]
+        score = z[:, :, 188:]
         score *= conf
         convert_matrix = torch.tensor([[1, 0, 1, 0], [0, 1, 0, 1], [-0.5, 0, 0.5, 0], [0, -0.5, 0, 0.5]],
                                            dtype=torch.float32,
