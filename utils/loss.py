@@ -525,7 +525,7 @@ class ComputeLoss:
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices, anch, twh = [], [], [], [], []
         ttheta, ttheta_labels = [], []
-        #gain = torch.ones(7, device=targets.device).long()  # normalized to gridspace gain
+        # gain = torch.ones(7, device=targets.device).long()  # normalized to gridspace gain
         feature_wh = torch.ones(2, device=targets.device).long() # feature_wh
         
         ai = torch.arange(na, device=targets.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
@@ -539,7 +539,7 @@ class ComputeLoss:
 
         for i in range(self.nl):
             anchors = self.anchors[i]
-            gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
+            # gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
             feature_wh[0:2] = torch.tensor(p[i].shape)[[3, 2]]  # xyxy gain=[w_f, h_f]
 
             # Match targets to anchors
@@ -578,9 +578,7 @@ class ComputeLoss:
             gij = (gxy - offsets).long()
             gi, gj = gij.T  # grid xy indices
 
-            t_original = t / gain
-            wh = t_original[:, 4:6]
-            
+            wh = t[:, 4:6] / feature_wh
 
             # Append
             a = t[:, -1].long()  # anchor indices
