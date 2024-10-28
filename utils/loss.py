@@ -458,7 +458,7 @@ class ComputeLoss:
         ltheta = torch.zeros(1, device=device)
         
         # tcls, ttheta, tbox, indices, anchors = self.build_targets(p, targets)  # targets
-        tcls, tbox, indices, anchors, ttheta, ttheta_labels = self.build_targets(p, targets)  # targets
+        tcls, tbox, indices, anchors, ttheta, ttheta_labels, twh = self.build_targets(p, targets)  # targets
         
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
@@ -474,32 +474,37 @@ class ComputeLoss:
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
 
+                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
+                
                 # _, ptheta = torch.max(ps[:, 4:184], 1, keepdim=True) # [n_conf_thres, 1] θ ∈ int[0, 179]
                 # ptheta = (ptheta - 90) / 180 * math.pi # [n_conf_thres, 1] θ ∈ [-pi/2, pi/2]
-
-                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
                 # iou = bbox_iou_obb(pbox, tbox[i], ptheta, ttheta[i], CIoU=True)  # iou(prediction, target)
-                lbox += (1.0 - iou).mean()  # iou loss
+                
+                # lbox += (1.0 - iou).mean()  # iou loss
+                pvarbox =  ps[:, 4:8].sigmoid()
+                lnll = bbox_nll(pbox.T, tbox[i], pvarbox.T, twh[i], x1y1x2y2=False)
+                
+                lbox += lnll.mean() 
 
                 # Objectness
                 tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
-                    t = torch.full_like(ps[:, 185:], self.cn, device=device)  # targets
+                    t = torch.full_like(ps[:, 189:], self.cn, device=device)  # targets
                     t[range(n), tcls[i]] = self.cp
                     #t[t==self.cp] = iou.detach().clamp(0).type(t.dtype)
-                    lcls += self.BCEcls(ps[:, 185:], t)  # BCE
+                    lcls += self.BCEcls(ps[:, 189:], t)  # BCE
 
                 # Theta Classification by Circular Smooth Label
                 t_theta = ttheta_labels[i].type(ps.dtype)
-                ltheta += self.BCEtheta(ps[:, 4:184], t_theta)
+                ltheta += self.BCEtheta(ps[:, 8:188], t_theta)
 
                 # Append targets to text file
                 # with open('targets.txt', 'a') as file:
                 #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
-            obji = self.BCEobj(pi[..., 184], tobj)
+            obji = self.BCEobj(pi[..., 188], tobj)
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.detach().item()
@@ -518,7 +523,7 @@ class ComputeLoss:
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h,theta)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
-        tcls, tbox, indices, anch = [], [], [], []
+        tcls, tbox, indices, anch, twh = [], [], [], [], []
         ttheta, ttheta_labels = [], []
         #gain = torch.ones(7, device=targets.device).long()  # normalized to gridspace gain
         feature_wh = torch.ones(2, device=targets.device).long() # feature_wh
@@ -534,7 +539,7 @@ class ComputeLoss:
 
         for i in range(self.nl):
             anchors = self.anchors[i]
-            # gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
+            gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
             feature_wh[0:2] = torch.tensor(p[i].shape)[[3, 2]]  # xyxy gain=[w_f, h_f]
 
             # Match targets to anchors
@@ -573,6 +578,10 @@ class ComputeLoss:
             gij = (gxy - offsets).long()
             gi, gj = gij.T  # grid xy indices
 
+            t_original = t / gain
+            wh = t_original[:, 4:6]
+            
+
             # Append
             a = t[:, -1].long()  # anchor indices
             # indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
@@ -582,8 +591,9 @@ class ComputeLoss:
             tcls.append(c)  # class
             ttheta.append(theta)
             ttheta_labels.append(gaussian_theta_labels)
+            twh.append(wh)
 
-        return tcls, tbox, indices, anch, ttheta, ttheta_labels
+        return tcls, tbox, indices, anch, ttheta, ttheta_labels, twh
     
 
 class ComputeLossBinOTA:
