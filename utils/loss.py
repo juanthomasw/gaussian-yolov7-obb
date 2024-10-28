@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-from utils.general import bbox_iou, bbox_iou_obb, bbox_alpha_iou, box_iou, box_giou, box_diou, box_ciou, xywh2xyxy
+from utils.general import bbox_iou, bbox_iou_obb, bbox_alpha_iou, box_iou, box_giou, box_diou, box_ciou, xywh2xyxy, bbox_nll
 from utils.torch_utils import is_parallel
 
 
