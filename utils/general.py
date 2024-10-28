@@ -780,10 +780,10 @@ def non_max_suppression_obb(prediction, conf_thres=0.25, iou_thres=0.45, classes
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]):
             l = labels[xi]
-            v = torch.zeros((len(l), nc + 5), device=x.device)
+            v = torch.zeros((len(l), nc + 185), device=x.device)
             v[:, :4] = l[:, 1:5]  # box
-            v[:, 5] = 1.0  # conf
-            v[range(len(l)), l[:, 0].long() + 6] = 1.0  # cls
+            v[:, 184] = 1.0  # conf
+            v[range(len(l)), l[:, 0].long() + 185] = 1.0  # cls
             x = torch.cat((x, v), 0)
 
         # If none remain process next image
@@ -1070,7 +1070,7 @@ def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45,
     """
 
     nc = prediction.shape[2] - 5 - 4 - 180  # number of classes
-    xc = prediction[..., 184] > conf_thres  # candidates
+    xc = prediction[..., 188] > conf_thres  # candidates
 
     # Settings
     min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
@@ -1091,10 +1091,10 @@ def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45,
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]):
             l = labels[xi]
-            v = torch.zeros((len(l), nc + 5), device=x.device)
+            v = torch.zeros((len(l), nc + 185), device=x.device)
             v[:, :4] = l[:, 1:5]  # box
-            v[:, 4] = 1.0  # conf
-            v[range(len(l)), l[:, 0].long() + 5] = 1.0  # cls
+            v[:, 184] = 1.0  # conf
+            v[range(len(l)), l[:, 0].long() + 185] = 1.0  # cls
             x = torch.cat((x, v), 0)
 
         # If none remain process next image
@@ -1108,7 +1108,7 @@ def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45,
         else:
             x[:, 189:] *= x[:, 188:189]  # conf = obj_conf * cls_conf
 
-        _, theta_pred = torch.max(x[:, 4:184], 1,  keepdim=True) # [n_conf_thres, 1] θ ∈ int[0, 179]
+        _, theta_pred = torch.max(x[:, 8:188], 1,  keepdim=True) # [n_conf_thres, 1] θ ∈ int[0, 179]
         theta_pred = (theta_pred - 90) / 180 * math.pi # [n_conf_thres, 1] θ ∈ [-pi/2, pi/2)
 
         # Detections matrix nx7 (xywh, theta, conf, cls)
@@ -1165,16 +1165,12 @@ def non_max_suppression_gaussianobb(prediction, conf_thres=0.25, iou_thres=0.45,
 
 def bbox_nll(box1, box2, varbox, wh_scale, x1y1x2y2=True):
     box2 = box2.T
-
-    # Check if wh_scale has only 1 dimension and add an extra dimension if needed
-    if len(wh_scale.shape) == 1:
-        wh_scale = wh_scale.unsqueeze(0)
     
     wh_scale = wh_scale.T
     tscale = 2.0 - wh_scale[0] * wh_scale[1]
 
     # print(f'whscale:{wh_scale}')
-    # print(f'tscale:{tscale}, wscale: {wh_scale[0]}, hscale: {wh_scale[1]}')
+    # print(f'wscale:{wh_scale[0]},\n\nhscale:{wh_scale[1]},\n\npred: {box1.T},\n\nvar: {varbox.T}, \n\ntgt: {box2.T}\n\n')
     
     if x1y1x2y2:
         b1_x, b1_y, b1_w, b1_h = (box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2, box1[2] - box1[0], box1[3] - box1[1]
@@ -1190,12 +1186,15 @@ def bbox_nll(box1, box2, varbox, wh_scale, x1y1x2y2=True):
     loss_w = -torch.log(gaussian_dist_pdf(b1_w, b2_w, var_w) + 1e-9) / 2.0
     loss_h = -torch.log(gaussian_dist_pdf(b1_h, b2_h, var_h) + 1e-9) / 2.0
     
+    # print(f'Loss_x:{loss_x}\nLoss_y:{loss_y}\nLoss_x:{loss_w}\nLoss_w:{loss_h}\n')
+
     loss = 1e-2 * ((loss_x + loss_y + loss_w + loss_h) * tscale).mean()
+    # loss = (loss_x + loss_y + loss_w + loss_h).mean()
 
     # Ensure that the loss is non-negative
-    loss = torch.clamp(loss, min=0.0)
+    # loss = torch.clamp(loss, min=0.0)
 
-    # print(f'NLLloss:{loss}')
+    # print(f'NLLloss:{loss}\n')
     
     return loss
     
