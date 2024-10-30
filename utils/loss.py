@@ -564,9 +564,13 @@ class ComputeLoss:
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
                 t = t.repeat((5, 1, 1))[j]
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+
+                wh = t[:, 4:6] / feature_wh
             else:
                 t = targets[0]
                 offsets = 0
+
+                wh = t[:, 4:6]
 
             # Define
             b, c = t[:, :2].long().T  # image, class
@@ -577,8 +581,6 @@ class ComputeLoss:
             
             gij = (gxy - offsets).long()
             gi, gj = gij.T  # grid xy indices
-
-            wh = t[:, 4:6] / feature_wh
 
             # Append
             a = t[:, -1].long()  # anchor indices
