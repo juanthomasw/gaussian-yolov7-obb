@@ -1188,11 +1188,11 @@ def bbox_nll(box1, box2, varbox, wh_scale, x1y1x2y2=True):
     
     # print(f'Loss_x:{loss_x}\nLoss_y:{loss_y}\nLoss_x:{loss_w}\nLoss_w:{loss_h}\n')
 
-    loss = 1e-2 * ((loss_x + loss_y + loss_w + loss_h) * tscale)
-    # loss = (loss_x + loss_y + loss_w + loss_h).mean()
-
-    # Ensure that the loss is non-negative
-    # loss = torch.clamp(loss, min=0.0)
+    loss = 1e-2 * ((loss_x + loss_y + loss_w + loss_h) * tscale) 
+    # rescale loss to 1/100
+    
+    # Ensure that the loss is between 0 and 1
+    loss = torch.clamp(loss, min=0.0, max=1.0)
 
     # print(f'NLLloss:{loss}\n')
     
