@@ -56,13 +56,13 @@ def poly2rbox(polys, num_cls_thata=180, radius=6.0, use_pi=False, use_gaussian=F
     for poly in polys:
         poly = np.float32(poly.reshape(4, 2))
         (x, y), (w, h), angle = cv2.minAreaRect(poly) # θ ∈ [0， 90]
-        angle = -angle # θ ∈ [-90， 0]
+        # angle = -angle # θ ∈ [-90， 0]
         theta = angle / 180 * math.pi # 转为pi制
 
         # trans opencv format to longedge format θ ∈ [-pi/2， pi/2]
         if w != max(w, h): 
             w, h = h, w
-            theta += math.pi/2
+            theta -= math.pi/2
         theta = regular_theta(theta) # limit theta ∈ [-pi/2, pi/2)
         angle = (theta * 180 / math.pi) + 90 # θ ∈ [0， 180)
 
@@ -114,9 +114,9 @@ def rbox2poly(obboxes):
         Cos, Sin = torch.cos(theta), torch.sin(theta)
 
         vector1 = torch.cat(
-            (w/2 * Cos, -w/2 * Sin), dim=-1)
+            (w/2 * Cos, w/2 * Sin), dim=-1)
         vector2 = torch.cat(
-            (-h/2 * Sin, -h/2 * Cos), dim=-1)
+            (-h/2 * Sin, h/2 * Cos), dim=-1)
         point1 = center + vector1 + vector2
         point2 = center + vector1 - vector2
         point3 = center - vector1 - vector2
